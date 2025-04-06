@@ -14,7 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
@@ -45,6 +45,8 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
+
+    syscall_counts: [[usize; MAX_SYSCALL_NUM]; MAX_APP_NUM],
 }
 
 lazy_static! {
@@ -55,6 +57,7 @@ lazy_static! {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
         }; MAX_APP_NUM];
+        let syscall_counts = [[0; MAX_SYSCALL_NUM]; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
@@ -65,6 +68,7 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_counts,
                 })
             },
         }
@@ -134,6 +138,32 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// Get the syscall count for the current task by syscall ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `syscall_id` - The ID of the syscall whose count is to be retrieved.
+    ///
+    /// # Returns
+    ///
+    /// The number of times the specified syscall has been invoked by the current task.
+    pub fn get_current_task_syscall_count(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.syscall_counts[current][syscall_id]
+    }
+
+    /// Increment the syscall count for the current task by syscall ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `syscall_id` - The ID of the syscall whose count is to be incremented.
+    pub fn increment_current_task_syscall_count(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.syscall_counts[current][syscall_id] += 1;
     }
 }
 

@@ -25,9 +25,22 @@ pub fn sys_yield() -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    let us = get_time_us();
+    let sec = us / 1_000_000;
+    let us = us % 1_000_000;
+
+    let task = crate::task::current_task().unwrap();
+    let user_timeval = translated_refmut(task, ts);
+
+    if let Some(user_timeval) = user_timeval {
+        user_timeval.sec = sec;
+        user_timeval.usec = us;
+        0
+    } else {
+        -1
+    }
 }
 
 /// TODO: Finish sys_trace to pass testcases

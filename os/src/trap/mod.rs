@@ -14,7 +14,8 @@
 
 mod context;
 
-use crate::config::{TRAMPOLINE, TRAP_CONTEXT_BASE};
+use crate::config::{PAGE_SIZE, TRAMPOLINE, TRAP_CONTEXT_BASE};
+use crate::mm;
 use crate::syscall::syscall;
 use crate::task::{
     current_trap_cx, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
@@ -60,7 +61,7 @@ pub fn trap_handler() -> ! {
     let cx = current_trap_cx();
     let scause = scause::read(); // get trap cause
     let stval = stval::read(); // get extra value
-    // trace!("into {:?}", scause.cause());
+                               // trace!("into {:?}", scause.cause());
     match scause.cause() {
         Trap::Exception(Exception::UserEnvCall) => {
             // jump to next instruction anyway
@@ -73,6 +74,26 @@ pub fn trap_handler() -> ! {
         | Trap::Exception(Exception::LoadFault)
         | Trap::Exception(Exception::LoadPageFault) => {
             println!("[kernel] PageFault in application, bad addr = {:#x}, bad instruction = {:#x}, kernel killed it.", stval, cx.sepc);
+
+            // 获取当前任务的页表
+            let task = crate::task::current_task().unwrap();
+            let memory_set = &task.memory_set;
+
+            // 检查 stval 对应的页表项
+            if let Some(pte) = memory_set.page_table.translate(mm::address::VirtPageNum(stval / PAGE_SIZE)) {
+                // 页表项存在，检查权限
+                println!(
+                    "[kernel] PageFault caused by insufficient permissions. PTE = {:?}", pte
+                   
+                );
+            } else {
+                // 页表项不存在
+                println!(
+                    "[kernel] PageFault caused by unmapped address: {:#x}",
+                    stval
+                );
+            }
+
             exit_current_and_run_next();
         }
         Trap::Exception(Exception::IllegalInstruction) => {

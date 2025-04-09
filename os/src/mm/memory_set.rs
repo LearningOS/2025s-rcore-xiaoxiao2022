@@ -1,6 +1,6 @@
 //! Implementation of [`MapArea`] and [`MemorySet`].
 
-use super::{frame_alloc, FrameTracker};
+use super::{address, frame_alloc, FrameTracker};
 use super::{PTEFlags, PageTable, PageTableEntry};
 use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::{StepByOne, VPNRange};
@@ -35,7 +35,8 @@ lazy_static! {
 }
 /// address space
 pub struct MemorySet {
-    page_table: PageTable,
+    /// TODO remove pub
+    pub page_table: PageTable, 
     areas: Vec<MapArea>,
 }
 
@@ -260,6 +261,37 @@ impl MemorySet {
             true
         } else {
             false
+        }
+    }
+
+    /// Check if a virtual address is mapped
+    pub fn is_mapped(&self, va: usize) -> bool {
+        self.page_table.translate(address::VirtPageNum(va)).is_some()
+    }
+
+    /// Remove a memory area starting from `start_va` to `end_va`.
+    pub fn remove_area_with_start(&mut self, start_va: VirtAddr, end_va: VirtAddr) {
+        // 创建一个临时的 MapArea
+        let mut temp_area = MapArea::new(
+            start_va,
+            end_va,
+            MapType::Framed,
+            MapPermission::empty(), // 权限在这里不重要
+        );
+
+        // 调用 unmap 方法释放物理页并取消映射
+        temp_area.unmap(&mut self.page_table);
+
+        // 从 areas 中移除对应的区域
+        if let Some((index, _)) = self.areas.iter().enumerate().find(|(_, area)| {
+            area.vpn_range.get_start() == start_va.into()
+        }) {
+            self.areas.remove(index);
+        } else {
+            panic!(
+                "remove_area_with_start: area [{:#x}, {:#x}) not found",
+                start_va.0, end_va.0
+            );
         }
     }
 }

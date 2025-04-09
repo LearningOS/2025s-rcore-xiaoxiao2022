@@ -15,8 +15,10 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+// use crate::mm::MemorySet;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
+use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
@@ -46,6 +48,8 @@ struct TaskManagerInner {
     tasks: Vec<TaskControlBlock>,
     /// id of current `Running` task
     current_task: usize,
+
+    syscall_counts: Vec<BTreeMap<usize, usize>>,
 }
 
 lazy_static! {
@@ -64,6 +68,7 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_counts: vec![BTreeMap::<usize, usize>::new(); num_app],
                 })
             },
         }
@@ -126,6 +131,12 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
+    /// Get the current 'Running' task's memory set.
+    // fn get_current_memory_set(&self) -> &'static mut MemorySet {
+    //     let mut inner = self.inner.exclusive_access();
+    //     inner.tasks[inner.current_task].get_memory_set()
+    // }
+
     /// Change the current 'Running' task's program break
     pub fn change_current_program_brk(&self, size: i32) -> Option<usize> {
         let mut inner = self.inner.exclusive_access();
@@ -152,6 +163,29 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// 获取当前任务的指定系统调用次数
+    ///
+    pub fn get_syscall_count(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        let syscall_counts = &inner.syscall_counts[cur];
+        if let Some(count) = syscall_counts.get(&syscall_id) {
+            *count
+        } else {
+            0
+        }
+    }
+
+    /// 更新当前任务的指定系统调用次数
+    ///
+    pub fn increment_syscall_count(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        let syscall_counts = &mut inner.syscall_counts[cur];
+        let count = syscall_counts.entry(syscall_id).or_insert(0);
+        *count += 1;
     }
 }
 
@@ -201,4 +235,11 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Get the current running task
+pub fn current_task() -> Option<&'static mut TaskControlBlock> {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current_task_id = inner.current_task;
+    unsafe { (inner.tasks.as_mut_ptr().add(current_task_id)).as_mut() }
 }

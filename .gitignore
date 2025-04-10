@@ -20,3 +20,4 @@ ci-user/
 os/vendor/
 user/
 reports/
+os/.cargo/config.toml

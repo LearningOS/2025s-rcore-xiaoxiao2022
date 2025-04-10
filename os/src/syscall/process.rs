@@ -1,5 +1,5 @@
 //! Process management syscalls
-use crate::{config::PAGE_SIZE, mm::{translated_byte_buffer, MapPermission}, 
+use crate::{config::PAGE_SIZE, mm::{translated_byte_buffer, MapPermission, PTEFlags}, 
 task::{change_program_brk, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, TASK_MANAGER}, timer::get_time_us};
 
 #[repr(C)]
@@ -33,7 +33,7 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     let usec = us % 1_000_000;
 
     let len = core::mem::size_of::<TimeVal>();
-    let mut buffers = translated_byte_buffer(current_user_token(), ts as *const u8, len);
+    let mut buffers = translated_byte_buffer(current_user_token(), ts as *const u8, len, PTEFlags::empty()).unwrap();
 
     match buffers.len() {
         1 => {
@@ -69,22 +69,22 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     trace!("kernel: sys_trace");
     match trace_request {
         0 => {
-            let buffers = translated_byte_buffer(current_user_token(), id as *const u8, core::mem::size_of::<u8>());
-            if buffers.is_empty() {
+            let buffers = translated_byte_buffer(current_user_token(), id as *const u8, core::mem::size_of::<u8>(), PTEFlags::R);
+            if buffers.is_none() {
                 return  -1;
             }
-            let id = buffers[0].as_ptr() as *const u8;
+            let id = buffers.unwrap()[0].as_ptr() as *const u8;
             let val = unsafe {
                 core::ptr::read_volatile(id)
             };
             val as isize
         }
         1 => {
-            let mut buffers = translated_byte_buffer(current_user_token(), id as *const u8, core::mem::size_of::<u8>());
-            if buffers.is_empty() {
+            let buffers = translated_byte_buffer(current_user_token(), id as *const u8, core::mem::size_of::<u8>(), PTEFlags::W);
+            if buffers.is_none() {
                 return -1;
             }
-            let id = buffers[0].as_mut_ptr() as *mut u8;
+            let id = buffers.unwrap()[0].as_mut_ptr() as *mut u8;
             unsafe {
                 core::ptr::write_volatile(id, data as u8);
             };

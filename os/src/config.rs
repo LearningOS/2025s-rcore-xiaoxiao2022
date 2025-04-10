@@ -8,6 +8,7 @@ pub const USER_STACK_SIZE: usize = 4096 * 2;
 pub const KERNEL_STACK_SIZE: usize = 4096 * 2;
 /// kernel heap size
 pub const KERNEL_HEAP_SIZE: usize = 0x200_0000;
+// pub const KERNEL_HEAP_SIZE: usize = 64 * 1024 * 1024; // 64 MB
 
 /// page size : 4KB
 pub const PAGE_SIZE: usize = 0x1000;

@@ -159,7 +159,10 @@ impl PageTable {
 }
 
 /// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table
-pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&'static mut [u8]> {
+pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize, flags: PTEFlags) -> Option<Vec<&'static mut [u8]>> {
+    if (ptr as usize) > 0x7fff_fff_fff {
+        return  None;
+    }
     let page_table = PageTable::from_token(token);
     let mut start = ptr as usize;
     let end = start + len;
@@ -167,7 +170,20 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
     while start < end {
         let start_va = VirtAddr::from(start);
         let mut vpn = start_va.floor();
-        let ppn = page_table.translate(vpn).unwrap().ppn();
+
+        let ppn: PhysPageNum;
+        if let Some(pte) = page_table.translate(vpn) {
+            if !pte.readable() && flags.contains(PTEFlags::R) {
+                return None;
+            }
+            if !pte.writable() && flags.contains(PTEFlags::W) {
+                return  None;
+            }
+            ppn = pte.ppn();
+        } else {
+            return  None;
+        }
+        
         vpn.step();
         let mut end_va: VirtAddr = vpn.into();
         end_va = end_va.min(VirtAddr::from(end));
@@ -178,5 +194,6 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         }
         start = end_va.into();
     }
-    v
+    Some(v)
 }
+

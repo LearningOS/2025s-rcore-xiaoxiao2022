@@ -1,13 +1,14 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{BIG_STRIDE, TRAP_CONTEXT_BASE};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
+use core::cmp::Ordering;
 
 /// Task control block structure
 ///
@@ -68,6 +69,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    ///
+    pub stride: Stride,
+
+    ///
+    pub priority: usize,
 }
 
 impl TaskControlBlockInner {
@@ -118,6 +125,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride: Stride(0),
+                    priority: 16,
                 })
             },
         };
@@ -191,6 +200,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    stride: Stride(0),
+                    priority: 16,
                 })
             },
         });
@@ -204,6 +215,43 @@ impl TaskControlBlock {
         task_control_block
         // **** release child PCB
         // ---- release parent PCB
+    }
+
+    ///
+    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> Arc<Self> {
+        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+        let trap_cx_ppn = memory_set
+            .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
+            .unwrap()
+            .ppn();
+
+            let pid_handle = pid_alloc();
+            let kernel_stack = kstack_alloc();
+            let kernel_stack_top = kernel_stack.get_top();
+            let task_control_block = Arc::new(TaskControlBlock {
+                pid: pid_handle,
+                kernel_stack,
+                inner: unsafe {
+                    UPSafeCell::new(TaskControlBlockInner {
+                        trap_cx_ppn,
+                        base_size: user_sp,
+                        task_cx: TaskContext::goto_trap_return(kernel_stack_top),
+                        task_status: TaskStatus::Ready,
+                        memory_set,
+                        parent: Some(Arc::downgrade(self)),
+                        children: Vec::new(),
+                        exit_code: 0,
+                        heap_bottom: user_sp,
+                        program_brk: user_sp,
+                        stride: Stride(0),
+                        priority: 16,
+                    })
+                },
+            });
+            self.inner_exclusive_access().children.push(task_control_block.clone());
+            let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
+            *trap_cx = TrapContext::app_init_context(entry_point, user_sp, KERNEL_SPACE.exclusive_access().token(), kernel_stack_top, trap_handler as usize);
+            task_control_block
     }
 
     /// get pid of process
@@ -249,4 +297,34 @@ pub enum TaskStatus {
     Running,
     /// exited
     Zombie,
+}
+
+#[derive(Ord, Eq, Clone, Copy)]
+pub struct Stride(pub usize);
+
+impl PartialOrd for Stride {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { 
+        if self.0 == other.0 {
+            return None;
+        }
+        
+        let diff = if self.0 > other.0 {
+            self.0 - other.0
+        } else {
+            other.0 - self.0
+        };
+        
+        if diff <= BIG_STRIDE / 2 {
+            self.0.partial_cmp(&other.0)
+        } else {
+            // 发生溢出，实际大小关系反转
+            other.0.partial_cmp(&self.0)
+        }
+    }
+}
+
+impl PartialEq for Stride {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
 }

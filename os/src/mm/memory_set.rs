@@ -266,7 +266,7 @@ impl MemorySet {
         self.page_table.translate(vpn)
     }
 
-    ///Remove all `MapArea`
+    ///Remove all `MapArea`    RAII 自动回收物理页
     pub fn recycle_data_pages(&mut self) {
         self.areas.clear();
     }

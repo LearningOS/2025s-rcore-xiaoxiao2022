@@ -3,12 +3,14 @@
 use alloc::sync::Arc;
 
 use crate::{
+    config::PAGE_SIZE,
     fs::{open_file, OpenFlags},
-    mm::{translated_refmut, translated_str},
+    mm::{check_vpn_mapped, translated_byte_buffer, translated_refmut, translated_str, MapPermission},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next,
     },
+    timer::get_time_us,
 };
 
 #[repr(C)]
@@ -105,30 +107,89 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
+    trace!("kernel:pid[{}] sys_get_time", current_task().unwrap().pid.0);
+    let us = get_time_us();
+    let sec = us / 1_000_000;
+    let usec = us % 1_000_000;
+
+    let len = core::mem::size_of::<TimeVal>();
+    let buffers = translated_byte_buffer(current_user_token(), ts as *const u8, len);
+    match buffers.len() {
+        1 => {
+            let buffer = buffers[0].as_ptr() as *mut TimeVal;
+            unsafe { *buffer = TimeVal { sec, usec } }
+            0
+        }
+        2 => {
+            let buffer1 = buffers[0].as_ptr() as *mut usize;
+            let buffer2 = buffers[1].as_ptr() as *mut usize;
+            unsafe {
+                *buffer1 = sec;
+                *buffer2 = usec;
+            }
+            0
+        }
+        _ => -1,
+    }
 }
 
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_mmap(start: usize, len: usize, prot: usize) -> isize {
+    trace!("kernel:pid[{}] sys_mmap", current_task().unwrap().pid.0);
+    if start % PAGE_SIZE != 0 || prot & !0x7 != 0 || prot & 0x7 == 0 {
+        return -1;
+    }
+
+    let page_count = (len + PAGE_SIZE - 1) / PAGE_SIZE;
+    for i in 0..page_count {
+        let vpn = start / PAGE_SIZE + i;
+        if check_vpn_mapped(current_user_token(), vpn) {
+            return -1;
+        }
+    }
+
+    let mut permission = MapPermission::U;
+    if prot & 0x1 != 0 {
+        permission |= MapPermission::R;
+    }
+    if prot & 0x2 != 0 {
+        permission |= MapPermission::W;
+    }
+    if prot & 0x4 != 0 {
+        permission |= MapPermission::X;
+    }
+
+    let end = start + len;
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .memory_set
+        .insert_framed_area(start.into(), end.into(), permission);
+    0
 }
 
 /// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    trace!("kernel:pid[{}] sys_munmap", current_task().unwrap().pid.0);
+    if start % PAGE_SIZE != 0 {
+        return -1;
+    }
+
+    let page_count = (len + PAGE_SIZE - 1) / PAGE_SIZE;
+    for i in 0..page_count {
+        let vpn = start / PAGE_SIZE + i;
+        if !check_vpn_mapped(current_user_token(), vpn) {
+            return -1;
+        }
+    }
+
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .memory_set
+        .remove_area_with_start_vpn((start / PAGE_SIZE).into());
+    0
 }
 
 /// change data segment size
@@ -143,19 +204,31 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_spawn(path: *const u8) -> isize {
+    trace!("kernel:pid[{}] sys_spawn", current_task().unwrap().pid.0);
+    if let Some(app_inode) = open_file(translated_str(current_user_token(), path).as_str(), OpenFlags::RDONLY) {
+        let all_data = app_inode.read_all();
+        let new_task = current_task().unwrap().spawn(all_data.as_slice());
+        let new_pid = new_task.pid.0;
+        add_task(new_task);
+        new_pid as isize
+    } else {
+         -1
+    }
 }
 
 // YOUR JOB: Set task priority.
-pub fn sys_set_priority(_prio: isize) -> isize {
+pub fn sys_set_priority(prio: isize) -> isize {
     trace!(
         "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    if prio <= 1 {
+        return -1;
+    } else {
+        let current = current_task().unwrap();
+        let mut inner = current.inner_exclusive_access();
+        inner.priority = prio as usize;
+        prio
+    }
 }

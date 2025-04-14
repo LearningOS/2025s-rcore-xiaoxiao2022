@@ -24,7 +24,6 @@ impl BlockDevice for BlockFile {
         assert_eq!(file.write(buf).unwrap(), BLOCK_SZ, "Not a complete block!");
     }
 }
-
 fn main() {
     easy_fs_pack().expect("Error when packing easy-fs!");
 }
@@ -55,11 +54,11 @@ fn easy_fs_pack() -> std::io::Result<()> {
             .write(true)
             .create(true)
             .open(format!("{}{}", target_path, "fs.img"))?;
-        f.set_len(16 * 2048 * 512).unwrap();
+        f.set_len(4 * 16 * 2048 * 512).unwrap();
         f
     })));
     // 16MiB, at most 4095 files
-    let efs = EasyFileSystem::create(block_file, 16 * 2048, 1);
+    let efs = EasyFileSystem::create(block_file, 4 * 16 * 2048, 1);
     let root_inode = Arc::new(EasyFileSystem::root_inode(&efs));
     let apps: Vec<_> = read_dir(src_path)
         .unwrap()

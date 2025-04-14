@@ -114,12 +114,12 @@ impl PageTable {
         let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
+            if !pte.is_valid() {
+                return None;
+            }
             if i == 2 {
                 result = Some(pte);
                 break;
-            }
-            if !pte.is_valid() {
-                return None;
             }
             ppn = pte.ppn();
         }
@@ -217,6 +217,12 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
         .translate_va(VirtAddr::from(va))
         .unwrap()
         .get_mut()
+}
+
+ /// check a vpn is mapped
+ pub fn check_vpn_mapped(token: usize, vpn: usize) -> bool {
+    let page_table = PageTable::from_token(token);
+    page_table.find_pte(VirtPageNum::from(vpn)).is_some()
 }
 
 /// An abstraction over a buffer passed from user space to kernel space

@@ -4,7 +4,9 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
+use core::any::Any;
+
+use super::{File, Stat, StatMode};
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
@@ -52,6 +54,19 @@ impl OSInode {
             v.extend_from_slice(&buffer[..len]);
         }
         v
+    }
+    /// 创建硬链接
+    pub fn link(&self, new_name: &str, old_name: &str) {
+        ROOT_INODE.create_link(new_name, old_name);
+    }
+    /// 删除硬链接
+    pub fn unlink(&self, name: &str) {
+        ROOT_INODE.unlink(name);
+    }
+    ///
+    pub fn fstat(&self) -> Stat {
+        let (ino, nlink) = self.inner.exclusive_access().inode.fstat();
+        Stat { dev:0, ino, mode: StatMode::FILE, nlink, pad: [0; 7] }
     }
 }
 
@@ -155,5 +170,9 @@ impl File for OSInode {
             total_write_size += write_size;
         }
         total_write_size
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

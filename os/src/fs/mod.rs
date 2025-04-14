@@ -3,10 +3,12 @@
 mod inode;
 mod stdio;
 
+use core::any::Any;
+
 use crate::mm::UserBuffer;
 
 /// trait File for all file types
-pub trait File: Send + Sync {
+pub trait File: Send + Sync {  // Send：允许跨线程转移所有权 Sync：允许跨线程共享不可变引用。
     /// the file readable?
     fn readable(&self) -> bool;
     /// the file writable?
@@ -15,6 +17,9 @@ pub trait File: Send + Sync {
     fn read(&self, buf: UserBuffer) -> usize;
     /// write to the file from buf, return the number of bytes written
     fn write(&self, buf: UserBuffer) -> usize;
+
+    /// 用于类型转换
+    fn as_any(&self) -> &dyn Any;
 }
 
 /// The stat of a inode
@@ -30,7 +35,7 @@ pub struct Stat {
     /// number of hard links
     pub nlink: u32,
     /// unused pad
-    pad: [u64; 7],
+    pub pad: [u64; 7],
 }
 
 bitflags! {

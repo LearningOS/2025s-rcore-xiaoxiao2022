@@ -5,6 +5,7 @@ use super::manager::insert_into_pid2process;
 use super::TaskControlBlock;
 use super::{add_task, SignalFlags};
 use super::{pid_alloc, PidHandle};
+use crate::config::{MAX_RESOURCES, MAX_THREADS};
 use crate::fs::{File, Stdin, Stdout};
 use crate::mm::{translated_refmut, MemorySet, KERNEL_SPACE};
 use crate::sync::{Condvar, Mutex, Semaphore, UPSafeCell};
@@ -49,6 +50,14 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// 
+    pub deadlock_detect_enabled: bool,
+    pub mu_available: [u32; MAX_RESOURCES],
+    pub mu_allocation: [[u32; MAX_RESOURCES]; MAX_THREADS],
+    pub mu_need: [[u32; MAX_RESOURCES]; MAX_THREADS],
+    pub se_available: [u32; MAX_RESOURCES],
+    pub se_allocation: [[u32; MAX_RESOURCES]; MAX_THREADS],
+    pub se_need: [[u32; MAX_RESOURCES]; MAX_THREADS],
 }
 
 impl ProcessControlBlockInner {
@@ -119,6 +128,13 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect_enabled: false,
+                    mu_available: [0; MAX_RESOURCES],
+                    mu_allocation: [[0; MAX_RESOURCES]; MAX_THREADS],
+                    mu_need: [[0; MAX_RESOURCES]; MAX_THREADS],
+                    se_available: [0; MAX_RESOURCES],
+                    se_allocation: [[0; MAX_RESOURCES]; MAX_THREADS],
+                    se_need: [[0; MAX_RESOURCES]; MAX_THREADS],
                 })
             },
         });
@@ -245,6 +261,13 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect_enabled: false,
+                    mu_available: [0; MAX_RESOURCES],
+                    mu_allocation: [[0; MAX_RESOURCES]; MAX_THREADS],
+                    mu_need: [[0; MAX_RESOURCES]; MAX_THREADS],
+                    se_available: [0; MAX_RESOURCES],
+                    se_allocation: [[0; MAX_RESOURCES]; MAX_THREADS],
+                    se_need: [[0; MAX_RESOURCES]; MAX_THREADS],
                 })
             },
         });
